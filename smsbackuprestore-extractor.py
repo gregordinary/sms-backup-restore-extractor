@@ -10,7 +10,7 @@
 # 
 #
 # Links :
-#  https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
+#   https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
 #
 #  example: python smsbackuprestore-extractor.py sms-20141122183844.xml medias/
 #
@@ -46,6 +46,14 @@ if sys.platform == 'win32':
         print("win32-setctime module not installed. To install, run: pip install win32-setctime")
         sys.exit(1)
 
+try:
+    from prettytable import PrettyTable
+except ModuleNotFoundError:
+    print("The required 'prettytable' module is not installed.")
+    print("You can install it by running 'pip install prettytable' in your command line.")
+    sys.exit(1)
+
+
 # Remaining Standard Library Imports
 import argparse
 import base64
@@ -53,6 +61,7 @@ import datetime
 import hashlib
 import logging
 import pickle
+import time
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -62,6 +71,7 @@ from pathlib import Path
 is_windows = sys.platform == 'win32'
 
 def process_mms(mms, output_folder, saved_hashes, saved_hashes_file, write_hash_on):
+    global total_duplicate_images_skipped
     media_list = get_media_list(mms)
     folder = get_folder_name(mms)
     folder_hashes = saved_hashes.get(folder, set())
@@ -72,6 +82,7 @@ def process_mms(mms, output_folder, saved_hashes, saved_hashes_file, write_hash_
 
         if sha256 in folder_hashes:
             logging.info("Duplicate file skipped: %s", filename)
+            total_duplicate_images_skipped += 1
             continue
 
         outfile = os.path.join(output, filename)
@@ -102,10 +113,12 @@ def get_folder_name(mms):
     return folder
 
 def get_output_folder(output_folder, folder):
+    global total_folders_created
     output = os.path.join(output_folder, folder)
     if not os.path.exists(output):
         os.makedirs(output)
         logging.info("New folder created: %s", folder)
+        total_folders_created += 1
     return output
 
 def get_file_data(media):
@@ -135,11 +148,16 @@ def get_file_data(media):
 
 
 def write_file(outfile, rawdata, timestamp, is_windows):
+    global total_files_created
+    global total_errors
+    
     try:
         with open(outfile, 'wb') as f:
             f.write(rawdata)
+        total_files_created += 1
     except IOError as e:
         logging.error("Unable to write to file %s: %s", outfile, e)
+        total_errors += 1
         return
 
     if os.path.exists(outfile):
@@ -152,6 +170,7 @@ def write_file(outfile, rawdata, timestamp, is_windows):
                 os.utime(outfile, ns=(int(filetime_ns), int(filetime_ns)))
         except Exception as e:
             logging.error("Unable to set the file time for %s: %s", outfile, e)
+            total_errors += 1
 
 def update_saved_hashes(saved_hashes, folder, folder_hashes, saved_hashes_file):
     saved_hashes[folder] = folder_hashes
@@ -160,6 +179,7 @@ def update_saved_hashes(saved_hashes, folder, folder_hashes, saved_hashes_file):
             pickle.dump(saved_hashes, f)
     except IOError as e:
         logging.error("Unable to write saved hashes file: %s", e)
+        total_errors += 1
 
 
 def initialize_logging():
@@ -173,6 +193,7 @@ def load_saved_hashes(saved_hashes_file):
         saved_hashes = {}
     except IOError as e:
         logging.error("Unable to read saved hashes file: %s", e)
+        total_errors += 1
         sys.exit(1)
     return saved_hashes
 
@@ -188,6 +209,7 @@ def process_xml_files(input_path, output_folder, num_threads, saved_hashes, save
                     future.result()
                 except Exception as e:
                     logging.error("Exception: %s", e)
+                    total_errors += 1
         if write_hash_on == 'xml':
             update_saved_hashes(saved_hashes, None, None, saved_hashes_file)
 
@@ -205,17 +227,71 @@ def process_xml_files(input_path, output_folder, num_threads, saved_hashes, save
                 if file.endswith(".xml"):
                     process_xml_file(os.path.join(root, file))
 
-def final_logging(output_folder):
-    logging.info("Job done")
-    logging.info("Output folder: %s", output_folder)
+def format_timedelta(td):
+    days, seconds = td.days, td.seconds
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = (seconds % 60)
+    milliseconds = td.microseconds // 1000
+
+    if days:
+        return f'{days}d {hours}h {minutes}m {seconds}s'
+    elif hours:
+        return f'{hours}h {minutes}m {seconds}s'
+    elif minutes:
+        return f'{minutes}m {seconds}s'
+    elif seconds:
+        return f'{seconds}s {milliseconds}ms'
+    else:
+        return f'{milliseconds}ms'
 
 def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, huge_tree, write_hash_on):
+    global total_files_created
+    global total_size_created
+    global total_duplicate_images_skipped
+    global total_errors
     initialize_logging()
-    saved_hashes = load_saved_hashes(saved_hashes_file)
-    process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on)
-    final_logging(output_folder)
+    try:
+        saved_hashes = load_saved_hashes(saved_hashes_file)
+    except IOError as e:
+        logging.error("Unable to read saved hashes file: %s", e)
+        total_errors += 1
+        sys.exit(1)
+
+    try:
+        process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on)
+    except Exception as e:
+        logging.error("Exception: %s", e)
+        total_errors += 1
+
+    # # display summary
+    # logging.info("Job done")
+    # logging.info("Output folder: %s", output_folder)
+    # logging.info("Total run time: %s", str(datetime.timedelta(seconds=(time.time() - start_time))))
+    # logging.info("Total folders created: %d", total_folders_created)
+    # logging.info("Total files created: %d", total_files_created)
+    # logging.info("Total duplicate images skipped: %d", total_duplicate_images_skipped)
+    # logging.info("Total errors: %d", total_errors)
+
+    # display summary
+    table = PrettyTable()
+    table.field_names = ["Metric", "Value"]
+    table.align["Metric"] = "l"
+    table.align["Value"] = "c"
+    table.add_row(["Run Time", format_timedelta(datetime.timedelta(seconds=(time.time() - start_time)))])
+    table.add_row(["Folders Created", total_folders_created])
+    table.add_row(["Files Created", total_files_created])
+    table.add_row(["Duplicate Images Skipped", total_duplicate_images_skipped])
+    table.add_row(["Total Errors", total_errors])
+    print(table)
 
 if __name__ == "__main__":
+    start_time = time.time()
+    total_folders_created = 0
+    total_files_created = 0
+    total_duplicate_images_skipped = 0
+    total_errors = 0
+
     parser = argparse.ArgumentParser(description='SMSBackupRestore extractor')
     parser.add_argument('input_path', type=str,
                         help='Path to the input XML file or directory containing XML files')
