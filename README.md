@@ -12,7 +12,7 @@ The purpose of this script is to extract all images and videos from an XML backu
 - Optional command Line Arguments
 - Duplicate avoidance:
   - Saved Hashes File (saved_hashes.pkl)
-    -Default location is in the specified output folder. 
+    - Default location is in the specified output folder. 
     - Records SHA256 values for each media item processed for a given folder
     - If an image with a matching hash already exists in the target folder, it is skipped to avoid duplication.
     - Images may still be duplicated across separate folders (The same image was sent in different conversations).
