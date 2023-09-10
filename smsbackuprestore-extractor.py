@@ -340,8 +340,8 @@ if __name__ == "__main__":
                         help='Path to the input XML file or directory containing XML files')
     parser.add_argument('output_folder', type=str,
                         help='Path to the output folder')
-    parser.add_argument('--threads', type=int, default=4,
-                        help='Number of threads to use (default: 4)')
+    parser.add_argument('--threads', type=int, default=1,
+                        help='Number of threads to use (default: 1)')
     parser.add_argument('--saved-hashes', type=str, default=None,
                         help='Path to the saved_hashes file (default: output_folder/saved_hashes.pkl)')
     parser.add_argument('--max-depth', type=int, default=None,
