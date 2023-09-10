@@ -10,7 +10,7 @@
 # 
 #
 # Links :
-#   https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
+#  https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
 #
 #  example: python smsbackuprestore-extractor.py sms-20141122183844.xml medias/
 #
@@ -61,7 +61,7 @@ from pathlib import Path
 # Define the is_windows flag
 is_windows = sys.platform == 'win32'
 
-def process_mms(mms, output_folder, saved_hashes):
+def process_mms(mms, output_folder, saved_hashes, saved_hashes_file, write_hash_on):
     media_list = get_media_list(mms)
     folder = get_folder_name(mms)
     folder_hashes = saved_hashes.get(folder, set())
@@ -79,9 +79,15 @@ def process_mms(mms, output_folder, saved_hashes):
 
         write_file(outfile, rawdata, timestamp, is_windows)
         folder_hashes.add(sha256)
-
-    update_saved_hashes(saved_hashes, folder, folder_hashes)
+        
+        if write_hash_on == 'media':
+            update_saved_hashes(saved_hashes, folder, folder_hashes, saved_hashes_file)
+    
+    if write_hash_on == 'mms':
+        update_saved_hashes(saved_hashes, folder, folder_hashes, saved_hashes_file)
+        
     mms.clear()
+
 
 def get_media_list(mms):
     return mms.xpath(".//part[starts-with(@ct, 'image') or starts-with(@ct, 'video')]")
@@ -90,7 +96,7 @@ def get_folder_name(mms):
     address = mms.get("address")
     contact = mms.get("contact_name")
     if contact == "(Unknown)":
-        folder = address if address is not None else "_Unknown"
+        folder = address if address is not None else "Unknown"
     else:
         folder = contact
     return folder
@@ -117,9 +123,16 @@ def get_file_data(media):
         elif name == "video/*":
             logging.info("Unknown video type * for MMS content; guessing .3gpp %s", output)
             ext = "3gpp"
-        timestamp = datetime.datetime.fromtimestamp(float(mms.get("date")) / 1000.0)
-        filename = timestamp.strftime("%Y%m%d_%H%M%S") + '.' + ext
+        date = media.get("date")
+        if date is None:
+            # handle the case where date is None, e.g., set a default date or skip this item
+            timestamp = datetime.datetime.now()
+        else:
+            timestamp = datetime.datetime.fromtimestamp(float(date) / 1000.0)
+
+        filename = timestamp.strftime("%Y%m%d_%H%M%S%f") + '_' + sha256[:5] + '.' + ext
     return rawdata, sha256, filename
+
 
 def write_file(outfile, rawdata, timestamp, is_windows):
     try:
@@ -136,18 +149,23 @@ def write_file(outfile, rawdata, timestamp, is_windows):
                 setctime(outfile, filetime)
             else:
                 filetime_ns = int(filetime * 1e9)
-                os.utime(outfile, ns=(filetime_ns, filetime_ns, filetime_ns))
+                os.utime(outfile, ns=(int(filetime_ns), int(filetime_ns)))
         except Exception as e:
             logging.error("Unable to set the file time for %s: %s", outfile, e)
 
-def update_saved_hashes(saved_hashes, folder, folder_hashes):
+def update_saved_hashes(saved_hashes, folder, folder_hashes, saved_hashes_file):
     saved_hashes[folder] = folder_hashes
+    try:
+        with open(saved_hashes_file, 'wb') as f:
+            pickle.dump(saved_hashes, f)
+    except IOError as e:
+        logging.error("Unable to write saved hashes file: %s", e)
 
 
-def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, huge_tree):
+def initialize_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    output_folder = Path(output_folder)
 
+def load_saved_hashes(saved_hashes_file):
     try:
         with open(saved_hashes_file, 'rb') as f:
             saved_hashes = pickle.load(f)
@@ -155,53 +173,47 @@ def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, h
         saved_hashes = {}
     except IOError as e:
         logging.error("Unable to read saved hashes file: %s", e)
-        return
+        sys.exit(1)
+    return saved_hashes
 
-    # Use ThreadPoolExecutor to process MMS in parallel
+def process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on):
     futures = []
-        
-    # Check if input_path is a file or a directory
-    if os.path.isfile(input_path):
-        # Process single XML file
-        input_file = input_path
+    def process_xml_file(input_file):
         logging.info("Parsing: %s", input_file)
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             for _, mms in etree.iterparse(input_file, tag='mms', huge_tree=huge_tree):
-                futures.append(executor.submit(process_mms, mms, output_folder, saved_hashes))
+                futures.append(executor.submit(process_mms, mms, output_folder, saved_hashes, saved_hashes_file, write_hash_on))
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     logging.error("Exception: %s", e)
+        if write_hash_on == 'xml':
+            update_saved_hashes(saved_hashes, None, None, saved_hashes_file)
+
+    # Check if input_path is a file or a directory
+    if os.path.isfile(input_path):
+        # Process single XML file
+        process_xml_file(input_path)
     else:
         # Process all XML files in input_path and its subdirectories
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            for root, dirs, files in os.walk(input_path):
-                depth = root[len(input_path):].count(os.path.sep)
-                if max_depth is not None and depth > max_depth:
-                    del dirs[:]
-                for file in files:
-                    if file.endswith(".xml"):
-                        input_file = os.path.join(root, file)
-                        logging.info("Parsing: %s", input_file)
-                        for _, mms in etree.iterparse(input_file, tag='mms', huge_tree=huge_tree):
-                            futures.append(executor.submit(process_mms, mms, output_folder, saved_hashes))
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logging.error("Exception: %s", e)
+        for root, dirs, files in os.walk(input_path):
+            depth = root[len(input_path):].count(os.path.sep)
+            if max_depth is not None and depth > max_depth:
+                del dirs[:]
+            for file in files:
+                if file.endswith(".xml"):
+                    process_xml_file(os.path.join(root, file))
 
-    # Save the saved_hashes file
-    try:
-        with open(saved_hashes_file, 'wb') as f:
-            pickle.dump(saved_hashes, f)
-    except IOError as e:
-        logging.error("Unable to write saved hashes file: %s", e)
-
+def final_logging(output_folder):
     logging.info("Job done")
     logging.info("Output folder: %s", output_folder)
 
+def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, huge_tree, write_hash_on):
+    initialize_logging()
+    saved_hashes = load_saved_hashes(saved_hashes_file)
+    process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on)
+    final_logging(output_folder)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SMSBackupRestore extractor')
@@ -217,6 +229,10 @@ if __name__ == "__main__":
                         help='Maximum directory depth to search for XML files (default: no limit)')
     parser.add_argument('--huge-tree', action='store_true',
                         help='Disable lxml security features for very large XML files (not recommended)')
+    parser.add_argument('--write-hash-on', type=str, default='media',
+                        choices=['media', 'mms', 'xml', 'run'],
+                        help='When to update the saved_hashes file (default: media)')
+
 
     args = parser.parse_args()
 
@@ -225,4 +241,4 @@ if __name__ == "__main__":
     else:
         saved_hashes_file = args.saved_hashes
 
-    main(args.input_path, args.output_folder, args.threads, saved_hashes_file, args.max_depth, args.huge_tree)
+    main(args.input_path, args.output_folder, args.threads, saved_hashes_file, args.max_depth, args.huge_tree, args.write_hash_on)
