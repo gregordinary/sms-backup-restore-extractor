@@ -26,6 +26,11 @@ The purpose of this script is to extract all images and videos from an XML backu
     - `output_folder`: Path to the output folder.
     - `--huge-tree`: (Likely Needed) Disable lxml security features to support very large XML files.
     - `--threads`: (Optional) Number of threads to use (default: 4).
+    - `--write-hash-on`:
+      - `--write-hash-on media` = Update the hash file after processing each media item. Default behavior, will create the hash file immediately on running the script and update the hashes as it processes each media item (image or video). If the script is interrupted or terminated, the hash values of written images is still tracked. 
+      - `--write-hash-on mms` = Update the hash file after processing each mms. Although unlikely due to the MMS size-limits, if your XML file has multiple images per MMS, this can offer slight performance improvement while still tracking progress. It will update the hash file as it processes each MMS object. 
+      - `--write-hash-on xml` = Update the hash after processing a complete XML file. If you are processing a directory with 3 XML files and it errors out on the third file, your progress will be saved from the frist two files, but not the third. A trade-off for some additional performance, if needed. 
+      - `--write-hash-on run` = Update the hash file after processing the full run and exiting successfully. Whether there is 1 XML file or 10, it'll only produce the hash file at the end of a complete run (old behavior). If the script exits unexpectedly, while all your images will still be there in the directory, the tracking of them between runs will be lost. 
     - `--saved-hashes`: (Optional) Path to the saved_hashes file (default: output_folder/saved_hashes.pkl).
     - `--max-depth`: (Optional) Maximum directory depth to search for XML files (default: current directory only).
       - --max-depth 0 = no limit
