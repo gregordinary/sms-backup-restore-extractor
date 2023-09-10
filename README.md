@@ -13,7 +13,6 @@ The purpose of this script is to extract all images and videos from an XML backu
 - Duplicate avoidance:
   - Saved Hashes File (saved_hashes.pkl)
     - Records SHA256 values for each media item processed for a given folder
-    - images within the same folder across multiple runs.
     - If an image with a matching hash already exists in the target folder, it is skipped to avoid duplication.
     - Images may still be duplicated across separate folders (The same image was sent in different conversations).
     - Can specify a name or an existing file with --saved-hashes </path/to/saved_hash_file.pkl>
