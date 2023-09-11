@@ -275,15 +275,19 @@ def process_xml_files(input_path, output_folder, num_threads, saved_hashes, save
     lock = threading.Lock()
     xml_files_found = [False]
 
-    logging.debug("Starting os.walk on input_path: %s", input_path)
-    for root, dirs, files in os.walk(input_path):
-        depth = root[len(input_path):].count(os.path.sep)
-        if max_depth and depth > max_depth:
-            del dirs[:]
-        else:
-            for file in files:
-                if file.endswith(".xml"):
-                    process_xml_file(os.path.join(root, file), output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found)
+    if max_depth == 1:
+        for file in os.listdir(input_path):
+            if file.endswith(".xml"):
+                process_xml_file(os.path.join(input_path, file), output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found)
+    else:
+        for root, dirs, files in os.walk(input_path):
+            depth = root[len(input_path):].count(os.path.sep)
+            if max_depth and depth > max_depth:
+                del dirs[:]
+            else:
+                for file in files:
+                    if file.endswith(".xml"):
+                        process_xml_file(os.path.join(root, file), output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found)
 
     if not xml_files_found[0]:
         logging.error("No XML files found in the specified input path.")
@@ -318,6 +322,9 @@ def main(input_paths, output_folder, num_threads, saved_hashes_file, max_depth, 
         global_stats.increment_errors()
         sys.exit(1)
 
+    lock = threading.Lock()
+    xml_files_found = [False]
+
     for input_path in input_paths:
         if os.path.isdir(input_path):
             try:
@@ -327,7 +334,7 @@ def main(input_paths, output_folder, num_threads, saved_hashes_file, max_depth, 
                 global_stats.increment_errors()
         else:
             try:
-                process_xml_file(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats)
+                process_xml_file(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found)
             except Exception as e:
                 logging.error("Exception: %s", e)
                 global_stats.increment_errors()
