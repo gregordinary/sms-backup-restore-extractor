@@ -1,30 +1,28 @@
 # SMSBackupRestore extractor
 #
 # smsbackuprestore-extractor.py
-# 24/11/2014
+# 2014.11.24
+#
+# 2019.02.09 @stefan-schiffer 
+# Ported to Python 3
+#
+# 2023.09.08 @gregordinary
+# Added multi-threading, duplicate handling, directory support, other improvements
 #
 # This script will extract all images and videos retrieved
-# from a xml backup of the Android application "SMS Backup & Restore".
-# For each contact, it will create a folder inside the output folder
-# with all received images and videos.
-# 
+# from an XML backup of the Android application "SMS Backup & Restore".
+# For each contact, it will create a sub-folder within the output folder
+# containing all received images and videos.
 #
+# The script saves the hashes of the created files in a file named 'saved_hashes.pkl'
+# in the output directory, to avoid duplicates across multiple runs. It only prevents
+# duplicates within the same folder, not cross-folder.
+#
+# If you want to reset the saved hashes, delete 'saved_hashes.pkl'.
+# 
 # Links :
 #   https://play.google.com/store/apps/details?id=com.riteshsahu.SMSBackupRestore
 #
-#  example: python smsbackuprestore-extractor.py sms-20141122183844.xml medias/
-#
-# 2019-02-09 @stefan-schiffer 
-# Ported to Python 3
-# You might have first to fix malformed XML with entityfixer.py
-# https://gist.github.com/Calvin-L/5232f876b8acf48a216941b8904632bb
-#
-# 2023-09-08 @gregordinary
-# Added multi-threading, duplicate handling, directory support, other improvements
-#
-# The script saves the hashes of the created files in a file named 'saved_hashes.pkl'
-# in the output directory, to avoid duplicates across multiple runs.
-# If you want to reset the saved hashes, delete 'saved_hashes.pkl'.
 
 
 # Initial Standard Library Imports
@@ -256,49 +254,38 @@ def load_saved_hashes(saved_hashes_file, global_stats):
         sys.exit(1)
     return saved_hashes
 
+def process_xml_file(input_file, output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found):
+    xml_files_found[0] = True
+    futures = [] 
+    logging.info("Parsing: %s", input_file)
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        for _, mms in etree.iterparse(input_file, tag='mms', huge_tree=huge_tree):
+            futures.append(executor.submit(process_mms, mms, output_folder, saved_hashes, saved_hashes_file, write_hash_on, global_stats, lock))
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except lxml.etree.XMLSyntaxError as e:
+                logging.error("XML syntax error occurred while parsing the file: %s", str(e))
+                global_stats.increment_errors()
+    if write_hash_on == 'xml':
+        update_saved_hashes(saved_hashes, None, None, saved_hashes_file)
+
+
 def process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats):
     lock = threading.Lock()
-    futures = []
-    xml_files_found = False
-    
-    def process_xml_file(input_file):
-        nonlocal xml_files_found
-        xml_files_found = True
-        logging.info("Parsing: %s", input_file)
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            for _, mms in etree.iterparse(input_file, tag='mms', huge_tree=huge_tree):
-                futures.append(executor.submit(process_mms, mms, output_folder, saved_hashes, saved_hashes_file, write_hash_on, global_stats, lock))
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except lxml.etree.XMLSyntaxError as e:
-                    logging.error("XML syntax error occurred while parsing the file: %s", str(e))
-                    global_stats.increment_errors()
-        if write_hash_on == 'xml':
-            update_saved_hashes(saved_hashes, None, None, saved_hashes_file)
+    xml_files_found = [False]
 
-    # Check if input_path is a file or a directory
-    if os.path.isfile(input_path):
-        # Process single XML file
-        process_xml_file(input_path)
-    else:
-        # Process all XML files in input_path and its subdirectories
-        logging.debug("Starting os.walk on input_path: %s", input_path)
-        for root, dirs, files in os.walk(input_path):
-            depth = root[len(input_path):].count(os.path.sep)
-            if max_depth == 0:
-                for file in files:
-                    if file.endswith(".xml"):
-                        process_xml_file(os.path.join(root, file))
-            elif depth > (max_depth - 2):
-                del dirs[:]
-            else:
-                for file in files:
-                    if file.endswith(".xml"):
-                        process_xml_file(os.path.join(root, file))
+    logging.debug("Starting os.walk on input_path: %s", input_path)
+    for root, dirs, files in os.walk(input_path):
+        depth = root[len(input_path):].count(os.path.sep)
+        if max_depth and depth > max_depth:
+            del dirs[:]
+        else:
+            for file in files:
+                if file.endswith(".xml"):
+                    process_xml_file(os.path.join(root, file), output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats, lock, xml_files_found)
 
-    
-    if not xml_files_found:
+    if not xml_files_found[0]:
         logging.error("No XML files found in the specified input path.")
         global_stats.increment_errors()
         sys.exit(1)
@@ -332,11 +319,18 @@ def main(input_paths, output_folder, num_threads, saved_hashes_file, max_depth, 
         sys.exit(1)
 
     for input_path in input_paths:
-        try:
-            process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats)
-        except Exception as e:
-            logging.error("Exception: %s", e)
-            global_stats.increment_errors()
+        if os.path.isdir(input_path):
+            try:
+                process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats)
+            except Exception as e:
+                logging.error("Exception: %s", e)
+                global_stats.increment_errors()
+        else:
+            try:
+                process_xml_file(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, huge_tree, write_hash_on, global_stats)
+            except Exception as e:
+                logging.error("Exception: %s", e)
+                global_stats.increment_errors()
 
     # display summary
     table = PrettyTable()
@@ -358,8 +352,8 @@ if __name__ == "__main__":
                         help='Path(s) to the input XML file(s) or directory containing XML files')
     parser.add_argument('output_folder', type=str,
                         help='Path to the output folder')
-    parser.add_argument('--threads', type=int, default=4,
-                        help='Number of threads to use (default: 4)')
+    parser.add_argument('--threads', type=int, default=1,
+                        help='Number of threads to use (default: 1)')
     parser.add_argument('--saved-hashes', type=str, default=None,
                         help='Path to the saved_hashes file (default: output_folder/saved_hashes.pkl)')
     parser.add_argument('--max-depth', type=int, default=1,
