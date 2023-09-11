@@ -212,6 +212,7 @@ def write_file(outfile, rawdata, timestamp, is_windows, global_stats):
         with open(outfile, 'wb') as f:
             f.write(rawdata)
         global_stats.increment_files_created()
+        logging.info("File created: %s", outfile)
     except IOError as e:
         if e.errno == errno.ENOSPC:  # if the error is "No space left on device"
             logging.error("No space left on the output device.")
@@ -258,7 +259,11 @@ def load_saved_hashes(saved_hashes_file, global_stats):
 def process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats):
     lock = threading.Lock()
     futures = []
+    xml_files_found = False
+    
     def process_xml_file(input_file):
+        nonlocal xml_files_found
+        xml_files_found = True
         logging.info("Parsing: %s", input_file)
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             for _, mms in etree.iterparse(input_file, tag='mms', huge_tree=huge_tree):
@@ -278,13 +283,25 @@ def process_xml_files(input_path, output_folder, num_threads, saved_hashes, save
         process_xml_file(input_path)
     else:
         # Process all XML files in input_path and its subdirectories
+        logging.debug("Starting os.walk on input_path: %s", input_path)
         for root, dirs, files in os.walk(input_path):
             depth = root[len(input_path):].count(os.path.sep)
-            if max_depth is not None and depth > max_depth:
+            if max_depth == 0:
+                for file in files:
+                    if file.endswith(".xml"):
+                        process_xml_file(os.path.join(root, file))
+            elif depth > (max_depth - 2):
                 del dirs[:]
-            for file in files:
-                if file.endswith(".xml"):
-                    process_xml_file(os.path.join(root, file))
+            else:
+                for file in files:
+                    if file.endswith(".xml"):
+                        process_xml_file(os.path.join(root, file))
+
+    
+    if not xml_files_found:
+        logging.error("No XML files found in the specified input path.")
+        global_stats.increment_errors()
+        sys.exit(1)
 
 def format_timedelta(td):
     days, seconds = td.days, td.seconds
@@ -304,7 +321,7 @@ def format_timedelta(td):
     else:
         return f'{milliseconds}ms'
 
-def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, huge_tree, write_hash_on, log_to_console):
+def main(input_paths, output_folder, num_threads, saved_hashes_file, max_depth, huge_tree, write_hash_on, log_to_console):
     global_stats = GlobalStats()
     initialize_logging(log_to_console)
     try:
@@ -314,11 +331,12 @@ def main(input_path, output_folder, num_threads, saved_hashes_file, max_depth, h
         global_stats.increment_errors()
         sys.exit(1)
 
-    try:
-        process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats)
-    except Exception as e:
-        logging.error("Exception: %s", e)
-        global_stats.increment_errors()
+    for input_path in input_paths:
+        try:
+            process_xml_files(input_path, output_folder, num_threads, saved_hashes, saved_hashes_file, max_depth, huge_tree, write_hash_on, global_stats)
+        except Exception as e:
+            logging.error("Exception: %s", e)
+            global_stats.increment_errors()
 
     # display summary
     table = PrettyTable()
@@ -336,16 +354,16 @@ if __name__ == "__main__":
     start_time = time.time()
 
     parser = argparse.ArgumentParser(description='SMSBackupRestore extractor')
-    parser.add_argument('input_path', type=str,
-                        help='Path to the input XML file or directory containing XML files')
+    parser.add_argument('input_path', type=str, nargs='+',
+                        help='Path(s) to the input XML file(s) or directory containing XML files')
     parser.add_argument('output_folder', type=str,
                         help='Path to the output folder')
-    parser.add_argument('--threads', type=int, default=1,
-                        help='Number of threads to use (default: 1)')
+    parser.add_argument('--threads', type=int, default=4,
+                        help='Number of threads to use (default: 4)')
     parser.add_argument('--saved-hashes', type=str, default=None,
                         help='Path to the saved_hashes file (default: output_folder/saved_hashes.pkl)')
-    parser.add_argument('--max-depth', type=int, default=None,
-                        help='Maximum directory depth to search for XML files (default: no limit)')
+    parser.add_argument('--max-depth', type=int, default=1,
+                        help='Maximum directory depth to search for XML files (default: 1)')
     parser.add_argument('--huge-tree', action='store_true',
                         help='Disable lxml security features for very large XML files (not recommended)')
     parser.add_argument('--write-hash-on', type=str, default='media',
