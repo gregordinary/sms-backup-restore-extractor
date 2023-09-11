@@ -1,4 +1,4 @@
-# XML Combiner with SQLite
+# XML Merger
 # WORK IN PROGRESS
 
 ## Description
