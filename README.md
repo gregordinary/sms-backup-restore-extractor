@@ -25,7 +25,9 @@ The purpose of this script is to extract all images and videos from an XML backu
 
 ### Usage
 1. **Command Line Arguments**: The script takes several command line arguments:
-    - `input_path`: Path to the input XML file or directory containing XML files.
+    - Input:
+      - `input_file(s) One or more .xml files to process. 
+      - `input_path`: Path to a directory containing XML files in the root or in its sub-directories. 
     - `output_folder`: Path to the output folder.
     - `--huge-tree`: **(Likely Required)** When --huge-tree is specified, it disables an lxml security feature to support very large XML files.
     - `--threads`: (Optional) Number of threads to use (default: 1).
@@ -58,17 +60,17 @@ The purpose of this script is to extract all images and videos from an XML backu
    - Use --log-to-console to output logs to the console as well.
    - If the script exits unexpectedly, it will display the errors on the console by default. 
 
-4. **Stats**: At the end of each run, the console will output stats to a table, detailing the run time, files/folders created, how many images were skipped, and any errors. 
+4. **Stats**: At the end of each run, the console will output stats to a table, detailing the run time, files/folders created, how many images were skipped, and any errors. Example below was from processing ~25GB data using --threads 8.  
 ```
-+--------------------------+-------+
-| Metric                   | Value |
-+--------------------------+-------+
-| Run Time                 | 2m43s |
-| Folders Created          |  243  |
-| Files Created            | 9076  |
-| Duplicate Images Skipped |  70   |
-| Total Errors             |   0   |
-+--------------------------+-------+
++--------------------------+--------+
+| Metric                   | Value  |
++--------------------------+--------+
+| Run Time                 | 3m 48s |
+| Folders Created          |   91   |
+| Files Created            | 10478  |
+| Duplicate Images Skipped |  3379  |
+| Total Errors             |   1    |
++--------------------------+--------+
 ```
 
 
