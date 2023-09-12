@@ -31,6 +31,14 @@ Run `python3 merge.py -i <input1.xml> <input2.xml> -o <output.xml> --db-file myd
 
 Run `python3 merge.py -i ./my_xml_directory/ -o <output.xml>`. This command processes all `.xml` files within the directory `my_xml_directory` into `<output.xml>`.
 
+### Ingest Files into DB
+
+Run `python3 merge.py --db-only-write --db-file my_sms.db -i <input1.xml> <input2.xml>`. This command writes `<input1.xml>` and `<input2.xml>` to "my_sms.db".
+
+### Use SQLite database as Input
+
+Run `python3 merge.py --input-db --db-file my_sms.db -o <output.xml>`. Takes data from "my_sms.db" and creates a merged, deduplicated XML file from its data. 
+
 ### Toggling SQLite Synchronous Mode
 
 Run `python3 merge.py -i <input1.xml> <input2.xml> -o <output.xml> --sync-mode OFF`. This command processes `<input1.xml>` and `<input2.xml>` with SQLite's synchronous mode set to `OFF` for better performance. 
@@ -41,4 +49,6 @@ Run `python3 merge.py -i <input1.xml> <input2.xml> -o <output.xml> --sync-mode O
 - `-i` or `--input`: The input XML file(s) or directory. (Required)
 - `-o` or `--output`: The output XML file. (Requried)
 - `--db-file`: SQLite DB file to store data. Defaults to in-memory if not specified. Specify this option when working with large files that won't fit in memory.
-- `--sync-mode`: SQLite Synchronous Mode. Options are `OFF`, `NORMAL`, and `FULL`. Default is `FULL`.
+- `--db-only-write`: Write entries to the SQLite database without generating an output XML file. This is useful for accumulating data over multiple runs, before creating the combined XML.
+- `--input-db`: Create a combined, deduplicated XML file directly from a SQLite database. 
+- `--sync-mode`: SQLite Synchronous Mode. Options are `OFF`, `NORMAL`, and `FULL`. Default is `FULL`. 
