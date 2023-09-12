@@ -5,6 +5,11 @@
 
 This script processes multiple XML files to combine the SMS and MMS messages they contain, avoiding duplicates. The data is temporarily stored in an SQLite database for efficient duplicate checking and data manipulation. The script allows various options for performance tuning and storage.
 
+Inspired by:
+- http://blog.radj.me/removing-duplicates-sms-backup-restore-xml-android
+- https://github.com/pcraciunoiu/AndroidSMSBackupRestoreCleaner
+- https://www.embrangler.com/2023/03/deduplicating-smsmms-on-android/
+
 ## Features
 
 - Combine & deduplicate XML backup files created by the application SMS Backup & Restore.
