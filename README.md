@@ -26,7 +26,7 @@ The purpose of this script is to extract all images and videos from an XML backu
 ### Usage
 1. **Command Line Arguments**: The script takes several command line arguments:
     - Input:
-      - `input_file(s) One or more .xml files to process. 
+      - `input_file(s)` One or more .xml files to process. 
       - `input_path`: Path to a directory containing XML files in the root or in its sub-directories. 
     - `output_folder`: Path to the output folder.
     - `--huge-tree`: **(Likely Required)** When --huge-tree is specified, it disables an lxml security feature to support very large XML files.
